@@ -1,0 +1,26 @@
+experiment:
+  title: "MPI + Java Virtual Threads baseline"
+  benchmark_set:
+    - pingpong
+    - allreduce
+    - montecarlo
+    - heate
+  architectures:
+    - A
+    - B
+    - C
+    - D
+  ranks: [1, 2, 4]
+  platform_threads: [1, 2, 4, 8]
+  virtual_threads: [100, 500, 1000, 5000]
+  message_sizes_bytes: [64, 1024, 65536, 1048576]
+  repetitions: 10
+  warmup_runs: 2
+  metrics:
+    - duration_ms
+    - throughput_msgs_per_sec
+    - communication_ratio
+    - cpu_utilization
+    - rss_mb
+    - pinning_events
+    - queue_wait_ms
