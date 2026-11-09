@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+.vscode
+.venv
+**/.venv
+**/target
+**/node_modules
+**/__pycache__
+*.log
+experiments/results/*.csv
