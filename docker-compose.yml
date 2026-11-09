@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: mpi-vt-research
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MPI_RANKS: 4
+      JAVA_OPTS: "-Xms512m -Xmx1g"
+      MPI_THREAD_LEVEL: "MPI_THREAD_MULTIPLE"
+    command: ["bash", "-lc", "mkdir -p experiments/results && java -jar target/mpi-virtual-threads-research-0.1.0.jar --server"]
+    volumes:
+      - ./experiments/results:/workspace/experiments/results
+    networks:
+      - experiment-net
+    depends_on:
+      - prometheus
+      - grafana
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: mpi-vt-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    networks:
+      - experiment-net
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: mpi-vt-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - experiment-net
+    depends_on:
+      - prometheus
+
+networks:
+  experiment-net:
+    driver: bridge
+
+volumes:
+  grafana-data:
