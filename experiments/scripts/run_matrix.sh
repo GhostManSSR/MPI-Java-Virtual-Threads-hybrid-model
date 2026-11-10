@@ -21,19 +21,34 @@ app_url="${APP_URL:-http://localhost:8080}"
 container_name="${CONTAINER_NAME:-mpi-vt-research}"
 sample_delay="${SAMPLE_DELAY:-16}"
 jar="${JAR:-target/mpi-virtual-threads-research-0.1.0.jar}"
+native_library_dir="${NATIVE_LIBRARY_DIR:-$ROOT_DIR/target/native}"
+mpi_exec_args_value="${MPIEXEC_ARGS:---oversubscribe}"
 output_dir="$results_dir"
 manifest="$output_dir/${run_id}_run-order.tsv"
 
-if [[ "$run_mode" != "local" && "$run_mode" != "container" ]]; then
-    echo "RUN_MODE must be 'local' or 'container'." >&2
+if [[ "$run_mode" != "local" && "$run_mode" != "container" && "$run_mode" != "mpi" ]]; then
+    echo "RUN_MODE must be 'local', 'container', or 'mpi'." >&2
     exit 1
 fi
-if [[ "$run_mode" == "local" && ! -f "$jar" ]]; then
+if [[ ( "$run_mode" == "local" || "$run_mode" == "mpi" ) && ! -f "$jar" ]]; then
     echo "Missing benchmark JAR: $jar (build it with 'make package')" >&2
     exit 1
 fi
-if [[ "$run_mode" == "local" && "$jar" != /* ]]; then
+if [[ ( "$run_mode" == "local" || "$run_mode" == "mpi" ) && "$jar" != /* ]]; then
     jar="$ROOT_DIR/$jar"
+fi
+if [[ "$run_mode" == "mpi" ]]; then
+    mpiexec="${MPIEXEC:-mpirun}"
+    if ! command -v "$mpiexec" >/dev/null 2>&1; then
+        echo "MPI launcher '$mpiexec' is unavailable; run this target inside WSL with Open MPI installed." >&2
+        exit 1
+    fi
+    if [[ ! -f "$native_library_dir/libmpi_bridge.so" ]]; then
+        echo "Missing JNI bridge: $native_library_dir/libmpi_bridge.so (build with 'make mpi-native')." >&2
+        exit 1
+    fi
+    read -r -a mpi_exec_args <<< "$mpi_exec_args_value"
+    mpi_version="$("$mpiexec" --version | head -n 1)"
 fi
 
 if [[ ! "$repetitions" =~ ^[1-9][0-9]*$ || ! "$warmups" =~ ^[0-9]+$ ]]; then
@@ -103,6 +118,10 @@ if [[ ! "$java_version" =~ ^[0-9]+$ ]]; then
     echo "Could not determine the Java runtime version." >&2
     exit 1
 fi
+if [[ "$run_mode" == "mpi" ]] && (( java_version < 21 )); then
+    echo "Real MPI architecture comparisons require Java 21+; found Java $java_version." >&2
+    exit 1
+fi
 
 requires_virtual_threads=0
 for architecture in "${architectures[@]}"; do
@@ -124,8 +143,13 @@ if (( requires_virtual_threads && java_version < 21 )); then
     echo "WARNING: Java $java_version falls back to platform threads for C/D; do not use these results as virtual-thread evidence." >&2
 fi
 
-printf '# run_id=%s\n# runner=%s\n# app_url=%s\n# order_seed=%s\n# java_version=%s\n# sample_delay_seconds=%s\n# allow_platform_fallback=%s\nrep\torder\tphase\tarchitecture\tscenario\tranks\ttasks\tmessage_size_bytes\n' \
-    "$run_id" "$run_mode" "$app_url" "$order_seed" "$java_version" "$sample_delay" "$allow_platform_fallback" > "$manifest"
+if [[ "$run_mode" == "mpi" ]]; then
+    printf '# run_id=%s\n# runner=%s\n# mpi_launcher=%s\n# mpi_version=%s\n# order_seed=%s\n# java_version=%s\n# native_library=%s\nrep\torder\tphase\tarchitecture\tscenario\tranks\ttasks\tmessage_size_bytes\n' \
+        "$run_id" "$run_mode" "$mpiexec" "$mpi_version" "$order_seed" "$java_version" "$native_library_dir" > "$manifest"
+else
+    printf '# run_id=%s\n# runner=%s\n# app_url=%s\n# order_seed=%s\n# java_version=%s\n# sample_delay_seconds=%s\n# allow_platform_fallback=%s\nrep\torder\tphase\tarchitecture\tscenario\tranks\ttasks\tmessage_size_bytes\n' \
+        "$run_id" "$run_mode" "$app_url" "$order_seed" "$java_version" "$sample_delay" "$allow_platform_fallback" > "$manifest"
+fi
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT
 printf 'Run ID: %s\nRunner: %s\nJava version: %s\nOrder seed: %s\nConfigurations per repetition: %s\nWarmups per configuration: %s\nMeasured repetitions: %s\n' \
@@ -161,6 +185,15 @@ run_benchmark() {
         if ! python3 -c 'import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if data.get("status") == "ok" else 1)' "$response_file"; then
             cat "$response_file" >&2
             echo "Container returned an invalid benchmark response." >&2
+            return 1
+        fi
+    elif [[ "$run_mode" == "mpi" ]]; then
+        if ! (cd "$temporary_dir" && "$mpiexec" "${mpi_exec_args[@]}" -np "$ranks" \
+            java -Djava.library.path="$native_library_dir" -jar "$jar" --mpi \
+            -a "$architecture" -s "$scenario" -t "$tasks" -r "$ranks" -m "$message_size") \
+            > "$log_file" 2>&1; then
+            cat "$log_file" >&2
+            echo "MPI benchmark failed; see $log_file" >&2
             return 1
         fi
     elif ! (cd "$temporary_dir" && java -jar "$jar" -a "$architecture" -s "$scenario" \

@@ -241,6 +241,8 @@ def prepare_data(df: pd.DataFrame) -> pd.DataFrame:
                 df[col].astype(str).str.replace(",", ".", regex=False),
                 errors="coerce",
             )
+            if col in {"cpuUtilization", "queueWaitMs"}:
+                df.loc[df[col] < 0, col] = pd.NA
 
     # Разбор extra.
     if "extra" in df.columns:

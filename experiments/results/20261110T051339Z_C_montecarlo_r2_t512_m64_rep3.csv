@@ -1,2 +1,0 @@
-architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
-C,montecarlo,2,512,64,31,33032258.065,0.250,0.880,0.060,{checksum=69391613952; mode=virtual-threads}

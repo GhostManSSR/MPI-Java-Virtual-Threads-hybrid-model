@@ -1,2 +1,0 @@
-architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
-B,heat,4,512,64,16,128000000.000,0.180,0.810,0.030,{checksum=276490616832; mode=platform-threads}

@@ -8,6 +8,10 @@ MESSAGE_SIZE ?= 1024
 PYTHON ?= python3
 MAVEN ?= mvn
 JAR ?= target/mpi-virtual-threads-research-0.1.0.jar
+MPIEXEC ?= mpirun
+MPIEXEC_ARGS ?= --oversubscribe
+JAVA_HOME ?= $(shell dirname "$$(dirname "$$(readlink -f "$$(command -v javac)")")")
+NATIVE_LIBRARY_DIR ?= target/native
 
 ARCHITECTURES ?= A,B,C,D
 SCENARIOS ?= pingpong,allreduce,montecarlo,heat
@@ -25,12 +29,16 @@ PROMETHEUS_SAMPLE_DELAY ?= 16
 
 .PHONY: help up down restart status logs health run pingpong allreduce montecarlo heat all-scenarios \
 	pure-mpi platform-threads virtual-threads dedicated-mpi-thread unit-test package \
+	mpi-native mpi-run mpi-experiment-matrix mpi-smoke-matrix \
 	experiment-matrix smoke-matrix container-matrix container-smoke-matrix container-example \
 	analysis-install dashboard run-analysis analysis-summary
 
 help:
 	@echo "Docker: up down restart status logs health"
 	@echo "Docker benchmark: make run [ARCH=A|B|C|D|all] [SCENARIO=pingpong|allreduce|montecarlo|heat|all]"
+	@echo "Real MPI: make mpi-run [ARCH=A|B|C|D] [SCENARIO=pingpong|allreduce|montecarlo|heat] [RANKS=2]"
+	@echo "Build JNI bridge: make mpi-native (run inside WSL with Open MPI installed)"
+	@echo "Real MPI matrix: make mpi-experiment-matrix or quick check: make mpi-smoke-matrix"
 	@echo "Local WSL matrix: make experiment-matrix [REPETITIONS=10] [WARMUPS=1]"
 	@echo "Container/Grafana matrix: make container-matrix [PROMETHEUS_SAMPLE_DELAY=16]"
 	@echo "Single Grafana example: make container-example"
@@ -98,6 +106,50 @@ unit-test:
 
 package:
 	$(MAVEN) -DskipTests package
+
+mpi-native: package
+	command -v mpicc >/dev/null
+	test -x "$(JAVA_HOME)/bin/javac"
+	mkdir -p "$(NATIVE_LIBRARY_DIR)"
+	mpicc -O2 -fPIC -shared \
+		-I"$(JAVA_HOME)/include" \
+		-I"$(JAVA_HOME)/include/linux" \
+		-o "$(NATIVE_LIBRARY_DIR)/libmpi_bridge.so" \
+		src/main/c/mpi_bridge.c
+
+mpi-run: ARCH = A
+mpi-run: mpi-native
+	$(MPIEXEC) $(MPIEXEC_ARGS) -np "$(RANKS)" java \
+		-Djava.library.path="$(abspath $(NATIVE_LIBRARY_DIR))" \
+		-jar "$(abspath $(JAR))" --mpi \
+		-a "$(ARCH)" -s "$(SCENARIO)" -t "$(TASKS)" -r "$(RANKS)" -m "$(MESSAGE_SIZE)"
+
+mpi-experiment-matrix: mpi-native
+	ARCHITECTURES="$(ARCHITECTURES)" \
+	SCENARIOS="$(SCENARIOS)" \
+	RANK_VALUES="$(RANK_VALUES)" \
+	TASK_VALUES="$(TASK_VALUES)" \
+	MESSAGE_SIZES="$(MESSAGE_SIZES)" \
+	REPETITIONS="$(REPETITIONS)" \
+	WARMUPS="$(WARMUPS)" \
+	RESULTS_DIR="$(RESULTS_DIR)" \
+	RUN_ID="$(RUN_ID)" \
+	ORDER_SEED="$(ORDER_SEED)" \
+	MPIEXEC="$(MPIEXEC)" \
+	MPIEXEC_ARGS="$(MPIEXEC_ARGS)" \
+	NATIVE_LIBRARY_DIR="$(abspath $(NATIVE_LIBRARY_DIR))" \
+	JAR="$(abspath $(JAR))" \
+	RUN_MODE=mpi \
+	bash experiments/scripts/run_matrix.sh
+
+mpi-smoke-matrix: ARCHITECTURES = A,B,C,D
+mpi-smoke-matrix: SCENARIOS = pingpong,allreduce,montecarlo,heat
+mpi-smoke-matrix: RANK_VALUES = 2
+mpi-smoke-matrix: TASK_VALUES = 16
+mpi-smoke-matrix: MESSAGE_SIZES = 64
+mpi-smoke-matrix: REPETITIONS = 1
+mpi-smoke-matrix: WARMUPS = 0
+mpi-smoke-matrix: mpi-experiment-matrix
 
 experiment-matrix: package
 	ARCHITECTURES="$(ARCHITECTURES)" \

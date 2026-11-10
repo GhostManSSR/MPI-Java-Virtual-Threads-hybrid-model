@@ -1,2 +1,0 @@
-architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
-C,allreduce,2,2048,65536,37,110702702.703,0.250,0.880,0.060,{checksum=1135250050646016; mode=virtual-threads}

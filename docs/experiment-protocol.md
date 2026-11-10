@@ -1,78 +1,110 @@
 # Experiment protocol
 
-## Running the matrix in WSL
+## Real MPI runs in WSL
 
-`make experiment-matrix` builds the JAR, warms up every configuration once, then
-executes 10 measured repetitions in a seeded, shuffled configuration order. By
-default the factors are:
+Run all MPI experiments from the project directory in WSL/Ubuntu with Maven,
+Java 21+, Open MPI (`mpicc` and `mpirun`), and GNU Make installed.
+
+```bash
+make mpi-native
+make mpi-smoke-matrix
+```
+
+For a single configuration:
+
+```bash
+make mpi-run ARCH=D SCENARIO=pingpong RANKS=2 TASKS=128 MESSAGE_SIZE=1024
+```
+
+For a full matrix:
+
+```bash
+make mpi-experiment-matrix RUN_ID=mpi-$(date -u +%Y%m%dT%H%M%SZ)
+```
+
+The matrix defaults to:
 
 | Factor | Values |
 |---|---|
 | Architecture | A, B, C, D |
 | Scenario | pingpong, allreduce, montecarlo, heat |
-| Ranks | 2, 4 |
-| Tasks | 128, 512, 2048 |
+| MPI ranks | 2, 4 |
+| Tasks per rank | 128, 512, 2048 |
 | Message size | 64, 1024, 65536 bytes |
 | Measured repetitions | 10 |
+| Warmups | 1 |
 
 This is 288 configurations and 2880 measured runs, in addition to the warmups.
-Each measured run is saved to its own CSV under `experiments/results`; the
-`<RUN_ID>_run-order.tsv` manifest records the seed and actual execution order.
-The dashboard loads the resulting CSV files from that directory.
+Each MPI configuration is launched with `mpirun -np ranks`; the CLI `ranks`
+value is checked against `MPI_Comm_size`. Every rank runs the same Java command,
+and only rank 0 writes the CSV row. The run-order TSV, one CSV and one log per
+run are stored under `experiments/results`.
 
-To run the same matrix through the `mpi-vt-research` Docker container and retain
-Prometheus/Grafana samples, use `make container-matrix`. It sends one `curl`
-request per run and waits 16 seconds after each measured request, matching the
-15-second Prometheus scrape interval. The full default matrix therefore takes
-at least 12.8 hours. Each HTTP response is also retained as JSON. The quick
-`make container-smoke-matrix` target checks the HTTP path without waiting for
-scrapes, so it is not intended for Grafana time-series comparisons.
-For a single sample containing all four architecture series, run
-`make container-example`: it makes one request with `architecture=all`,
-`pingpong`, 2 ranks, 128 tasks, and a 1024-byte message, then waits for one
-Prometheus scrape. Set Grafana's time range to the last 15 minutes to inspect it.
+The JNI bridge is built as `target/native/libmpi_bridge.so` with `mpicc`. The
+bridge calls `MPI_Init_thread`, checks `MPI_Query_thread`, and calls
+`MPI_Finalize`. A barrier synchronizes all ranks before each scenario. A
+requires `MPI_THREAD_SINGLE`; B/C require
+`MPI_THREAD_FUNNELED`; D requires `MPI_THREAD_MULTIPLE`, because the dedicated
+communication thread performs MPI calls after initialization on the main
+thread. Insufficient thread support fails the run rather than falling back.
 
-Grafana metric labels include the full architecture name, scenario, ranks,
-task count, and message size so that different matrix configurations are
-separate time series. In Streamlit, architecture and execution-mode labels are
-normalized to the same A-D names used in the methodology.
+The MPI scenarios issue the following operations:
 
-Run `make smoke-matrix` first to check the local setup. On Java versions below
-21, this target explicitly allows the application's platform-thread fallback
-for C/D and warns that these smoke results are not virtual-thread evidence.
-The full matrix rejects Java versions below 21 when C or D is selected unless
-`ALLOW_PLATFORM_FALLBACK=1` is deliberately passed; do not use fallback runs
-for claims about virtual threads. For a smaller pilot or
-an exactly replayable ordering, override the factors and pass a fixed
-`ORDER_SEED` and unique `RUN_ID`, for example:
+- `pingpong`: one message-sized ring exchange per rank using `MPI_Sendrecv`.
+- `allreduce`: one `MPI_Allreduce` over an array whose size matches
+  `message_size` (must be a multiple of 8 bytes).
+- `montecarlo`: deterministic local samples followed by an `MPI_Allreduce` of
+  hit counts.
+- `heat`: two halo exchanges per step using `MPI_Sendrecv`; the number of steps
+  equals `tasks` per rank.
+
+Every rank records its elapsed interval, and `MPI_MAX` selects the slowest
+rank's duration for `durationMs` and the throughput denominator. The rank-0
+CSV's `extra` field also records rank 0's local interval as `rankElapsedNanos`.
+`communicationRatio` is rank 0's measured MPI-call time divided by the
+maximum measured duration.
+`communicationCalls` and `communicationBytesPerRank` in the CSV `extra` field
+describe application-level calls and payload per rank, not physical network
+traffic generated internally by a collective implementation. Duration is
+measured in nanoseconds and reported with fractional-millisecond precision;
+throughput is total completed tasks across ranks per second divided by the
+maximum rank duration. `cpuUtilization` is process CPU time summed across MPI
+ranks, divided by the maximum rank duration and the available logical
+processor count, bounded to [0, 1] to account for CPU-time counter granularity;
+for these single-host runs this reports utilization as a fraction of host
+capacity. Very short runs may have coarse CPU utilization estimates.
+`queueWaitMs` is the average submission-to-start
+delay per rank, with the maximum rank average reported for MPI runs. A has no
+task queue, so queue wait is zero. Historical CSV files may retain `-1` for
+these fields; the dashboard treats those old values as missing.
+
+Use unique `RUN_ID` values. Record the WSL/host version, CPU allocation, JVM
+vendor and version, MPI implementation/version, and background load alongside
+the result set. A quick smoke run confirms the JNI path and each operation; it
+is not a statistically useful performance study. For example, a smaller
+repeatable pilot is:
 
 ```bash
-make experiment-matrix ARCHITECTURES=A,C SCENARIOS=pingpong,heat \
-  RANK_VALUES=2,4 TASK_VALUES=128,512 MESSAGE_SIZES=64,1024 \
-  REPETITIONS=10 WARMUPS=1 ORDER_SEED=20261110 RUN_ID=pilot-20261110
+make mpi-experiment-matrix \
+  ARCHITECTURES=A,B,C,D SCENARIOS=pingpong,allreduce \
+  RANK_VALUES=2 TASK_VALUES=128,512 MESSAGE_SIZES=64,1024 \
+  REPETITIONS=10 WARMUPS=1 ORDER_SEED=20261110 RUN_ID=mpi-pilot-20261110
 ```
 
-Keep the machine, JVM, OS/WSL version, CPU allocation, and background load
-constant between runs; record them alongside any reported results. Use the same
-configuration for all architectures, retain per-run data, and report
-distributions (at least median and spread), not only the best run. The matrix
-creates observations; statistical significance and causal claims need a
-predefined analysis and adequate independent measurements.
+## Local and container harnesses
 
-## Current implementation limits
+`make experiment-matrix` and `make smoke-matrix` run the Java harness without
+MPI initialization or MPI communication. `make container-matrix` invokes the
+HTTP service, which also does not initialize MPI. Their output is useful for
+testing the non-MPI harness and monitoring path only; do not combine these
+files with real MPI results or describe them as MPI measurements.
 
-The matrix improves repeatability and coverage but does not, by itself, validate
-the scientific hypothesis. The current benchmark scenarios delegate to the
-same executor workload; the “ranks” value is a workload parameter, not a launch
-of that many MPI processes. Architecture A currently runs a local sequential
-loop, and several exported metrics (including CPU utilization and communication
-ratio) are constants supplied by the executor rather than measurements from the
-OS or MPI runtime. Architecture C/D require a Java 21+ runtime for actual
-virtual threads; older runtimes fall back to platform threads.
+## Interpretation limits
 
-Treat current results as harness smoke-test or exploratory measurements, not
-evidence of MPI cluster scalability or measured MPI communication performance.
-Before drawing scientific conclusions, implement and validate real MPI
-communication and workload-specific scenarios, collect metrics from the runtime
-and operating system, and record the MPI implementation/thread support level
-(`MPI_THREAD_*`) and environment for every experiment.
+The real MPI targets launch ranks and execute communication, but current
+benchmarks are a single-host research prototype. Each architecture includes
+task creation and coordination in its timed interval. The results should be
+compared only for identical configurations and treated as exploratory until
+the workload, data correctness, and host-level resource measurements have been
+independently validated. Report distributions (at least median and spread),
+not only the best run.

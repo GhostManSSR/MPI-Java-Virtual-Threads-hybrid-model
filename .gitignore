@@ -4,4 +4,4 @@ target/
 *.class
 .venv/
 *.log
-
+experiments/results/*

@@ -28,11 +28,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class Main {
-    private static final AtomicLong LAST_DURATION_MS = new AtomicLong(0L);
+    private static final AtomicReference<Double> LAST_DURATION_MS = new AtomicReference<>(0d);
     private static final AtomicLong LAST_THROUGHPUT = new AtomicLong(0L);
     private static final AtomicReference<String> LAST_ARCHITECTURE = new AtomicReference<>("A");
     private static final AtomicReference<String> LAST_SCENARIO = new AtomicReference<>("pingpong");
@@ -83,7 +83,8 @@ public final class Main {
         StringBuilder metrics = new StringBuilder();
         metrics.append("# HELP app_last_run_duration_ms Last benchmark duration in milliseconds\n");
         metrics.append("# TYPE app_last_run_duration_ms gauge\n");
-        metrics.append("app_last_run_duration_ms ").append(LAST_DURATION_MS.get()).append("\n");
+        metrics.append("app_last_run_duration_ms ")
+                .append(String.format(java.util.Locale.US, "%.3f", LAST_DURATION_MS.get())).append("\n");
         metrics.append("# HELP app_last_run_throughput Throughput from the last benchmark run\n");
         metrics.append("# TYPE app_last_run_throughput gauge\n");
         metrics.append("app_last_run_throughput ").append(LAST_THROUGHPUT.get()).append("\n");
@@ -117,9 +118,13 @@ public final class Main {
                     + "\",message_size_bytes=\"" + result.messageSizeBytes() + "\"}";
             appendBenchmarkMetric(metrics, "app_benchmark_duration_ms", labels, result.durationMs());
             appendBenchmarkMetric(metrics, "app_benchmark_throughput", labels, result.throughput());
-            appendBenchmarkMetric(metrics, "app_benchmark_cpu_utilization_ratio", labels, result.cpuUtilization());
             appendBenchmarkMetric(metrics, "app_benchmark_communication_ratio", labels, result.communicationRatio());
-            appendBenchmarkMetric(metrics, "app_benchmark_queue_wait_ms", labels, result.queueWaitMs());
+            if (result.cpuUtilization() >= 0d) {
+                appendBenchmarkMetric(metrics, "app_benchmark_cpu_utilization_ratio", labels, result.cpuUtilization());
+            }
+            if (result.queueWaitMs() >= 0d) {
+                appendBenchmarkMetric(metrics, "app_benchmark_queue_wait_ms", labels, result.queueWaitMs());
+            }
         }
         sendText(exchange, 200, metrics.toString().getBytes(StandardCharsets.UTF_8));
     }
@@ -192,7 +197,8 @@ public final class Main {
             if (i > 0) builder.append(',');
             builder.append("{\"architecture\":\"").append(result.architecture())
                     .append("\",\"benchmark\":\"").append(result.benchmark())
-                    .append("\",\"durationMs\":").append(result.durationMs())
+                    .append("\",\"durationMs\":")
+                    .append(String.format(java.util.Locale.US, "%.3f", result.durationMs()))
                     .append(",\"throughput\":").append(String.format(java.util.Locale.US, "%.3f", result.throughput()))
                     .append(",\"cpuUtilization\":").append(String.format(java.util.Locale.US, "%.3f", result.cpuUtilization()))
                     .append("}");
@@ -202,6 +208,11 @@ public final class Main {
     }
 
     private static void runBenchmarkCommand(String[] args) throws Exception {
+        if (hasMpiFlag(args)) {
+            runMpiBenchmarkCommand(args);
+            return;
+        }
+
         String architectureValue = readArg(args, "-a", "--architecture", "all");
         String scenarioValue = readArg(args, "-s", "--scenario", "pingpong");
         int taskCount = Integer.parseInt(readArg(args, "-t", "--tasks", "128"));
@@ -213,12 +224,61 @@ public final class Main {
         Path outputPath = Path.of("experiments", "results", "benchmark-results.csv");
         MetricsExporter.exportCsv(outputPath, results);
 
-        System.out.println(MpiRuntime.describe());
         System.out.println("Saved " + results.size() + " benchmark rows to " + outputPath.toAbsolutePath());
         for (BenchmarkResult result : results) {
             System.out.println(result.architecture() + "/" + result.benchmark() + ": durationMs=" + result.durationMs()
                     + ", throughput=" + String.format(java.util.Locale.US, "%.3f", result.throughput())
                     + ", cpuUtilization=" + String.format(java.util.Locale.US, "%.3f", result.cpuUtilization()));
+        }
+    }
+
+    private static void runMpiBenchmarkCommand(String[] args) throws Exception {
+        String architectureValue = readArg(args, "-a", "--architecture", "A");
+        if ("all".equalsIgnoreCase(architectureValue)) {
+            throw new IllegalArgumentException(
+                    "MPI mode runs one architecture per mpirun invocation; use -a A, B, C, or D");
+        }
+
+        ExecutionArchitecture architecture = ExecutionArchitecture.fromValue(architectureValue);
+        String scenarioValue = readArg(args, "-s", "--scenario", "pingpong");
+        int taskCount = Integer.parseInt(readArg(args, "-t", "--tasks", "128"));
+        int expectedRanks = Integer.parseInt(readArg(args, "-r", "--ranks", "2"));
+        int messageSizeBytes = Integer.parseInt(readArg(args, "-m", "--message-size", "1024"));
+        if (taskCount <= 0 || expectedRanks < 2 || messageSizeBytes < 8
+                || messageSizeBytes > 16 * 1024 * 1024) {
+            throw new IllegalArgumentException(
+                    "MPI mode requires tasks > 0, ranks >= 2, and message size in [8, 16777216] bytes");
+        }
+        if ("allreduce".equalsIgnoreCase(scenarioValue) && messageSizeBytes % Long.BYTES != 0) {
+            throw new IllegalArgumentException("allreduce message size must be divisible by 8 bytes");
+        }
+
+        try (MpiRuntime ignored = MpiRuntime.initialize(architecture)) {
+            if (MpiRuntime.size() != expectedRanks) {
+                throw new IllegalArgumentException(
+                        "Requested ranks=" + expectedRanks + " but mpirun started " + MpiRuntime.size()
+                                + " processes; make these values equal");
+            }
+
+            List<BenchmarkResult> results = executeBenchmark(
+                    architecture.name(), scenarioValue, taskCount, MpiRuntime.size(), messageSizeBytes);
+            if (MpiRuntime.isRoot()) {
+                Path outputPath = Path.of("experiments", "results", "benchmark-results.csv");
+                MetricsExporter.exportCsv(outputPath, results);
+                System.out.println(MpiRuntime.describe());
+                System.out.println("MPI architecture: " + architecture.label());
+                System.out.println("Saved " + results.size() + " benchmark rows to "
+                        + outputPath.toAbsolutePath());
+                for (BenchmarkResult result : results) {
+                    System.out.println(result.architecture() + "/" + result.benchmark()
+                            + ": durationMs="
+                            + String.format(java.util.Locale.US, "%.3f", result.durationMs())
+                            + ", throughputTasksPerSecond="
+                            + String.format(java.util.Locale.US, "%.3f", result.throughput())
+                            + ", mpiWorldSize=" + MpiRuntime.size()
+                            + ", mpiThreadSupport=" + MpiRuntime.providedLevel());
+                }
+            }
         }
     }
 
@@ -233,6 +293,9 @@ public final class Main {
             ExecutionArchitecture architecture = ExecutionArchitecture.fromValue(architectureId);
             ExperimentExecutor executor = createExecutor(architecture);
             for (BenchmarkScenario scenario : scenarios) {
+                if (MpiRuntime.isActive()) {
+                    MpiRuntime.synchronizeRanks();
+                }
                 results.add(scenario.execute(executor, ranks, taskCount, messageSizeBytes));
             }
         }
@@ -295,6 +358,15 @@ public final class Main {
         return false;
     }
 
+    private static boolean hasMpiFlag(String[] args) {
+        for (String arg : args) {
+            if ("--mpi".equals(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String readArg(String[] args, String shortName, String longName, String defaultValue) {
         for (int i = 0; i < args.length; i++) {
             if (shortName.equals(args[i]) || longName.equals(args[i])) {
@@ -341,8 +413,9 @@ public final class Main {
     }
 
     private static void printHelp() {
-        System.out.println("Usage: java -jar target/...jar [--server] [-a <A|B|C|D|all> -s <pingpong|allreduce|montecarlo|heat|all> -t <taskCount> -r <ranks> -m <messageBytes>]");
+        System.out.println("Usage: java -Djava.library.path=target/native -jar target/...jar --mpi -a <A|B|C|D> -s <pingpong|allreduce|montecarlo|heat|all> -t <taskCount> -r <MPI ranks> -m <messageBytes>");
+        System.out.println("Launch MPI benchmarks with mpirun, for example: mpirun -np 2 java -Djava.library.path=target/native -jar target/...jar --mpi -a C -s pingpong -t 128 -r 2 -m 1024");
+        System.out.println("Local harness mode (no real MPI): java -jar target/...jar [-a <A|B|C|D|all> -s <pingpong|allreduce|montecarlo|heat|all> -t <taskCount> -r <ranks> -m <messageBytes>]");
         System.out.println("Example: java -jar target/...jar --server");
-        System.out.println("Example: java -jar target/...jar -a all -s pingpong -t 128 -r 2 -m 1024");
     }
 }

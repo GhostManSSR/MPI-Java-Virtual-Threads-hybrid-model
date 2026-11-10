@@ -1,2 +1,0 @@
-architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
-C,pingpong,2,2048,64,41,99902439.024,0.250,0.880,0.060,{checksum=1108642627584; mode=virtual-threads}

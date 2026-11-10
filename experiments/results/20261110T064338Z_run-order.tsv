@@ -1,9 +1,0 @@
-# run_id=20261110T064338Z
-# runner=container
-# app_url=http://localhost:8080
-# order_seed=1794293018
-# java_version=25
-# sample_delay_seconds=16
-# allow_platform_fallback=0
-rep	order	phase	architecture	scenario	ranks	tasks	message_size_bytes
-1	1	measure	all	pingpong	2	128	1024
