@@ -1,0 +1,1 @@
+{"status":"ok","results":[{"architecture":"C","benchmark":"heat","durationMs":2,"throughput":128000000.000,"cpuUtilization":0.880}],"output":"/workspace/experiments/results/benchmark-results.csv"}

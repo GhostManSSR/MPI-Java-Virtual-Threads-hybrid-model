@@ -1,0 +1,2 @@
+architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
+D,pingpong,2,512,65536,41,24975609.756,0.140,0.720,0.020,{checksum=71057012686848; mode=dedicated-mpi-thread; queueActive=true}

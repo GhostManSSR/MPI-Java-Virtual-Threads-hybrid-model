@@ -1,0 +1,2 @@
+architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
+A,montecarlo,4,2048,1024,5,1638400000.000,0.120,0.740,0.000,{checksum=282162439913472; mode=pure-mpi}

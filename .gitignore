@@ -4,6 +4,4 @@ target/
 *.class
 .venv/
 *.log
-experiments/results/*.csv
-experiments/results/*.json
-experiments/results/*.tsv
+

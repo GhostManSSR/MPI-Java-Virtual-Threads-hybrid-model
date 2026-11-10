@@ -1,0 +1,1 @@
+{"status":"ok","results":[{"architecture":"B","benchmark":"allreduce","durationMs":11,"throughput":23272727.273,"cpuUtilization":0.810}],"output":"/workspace/experiments/results/benchmark-results.csv"}

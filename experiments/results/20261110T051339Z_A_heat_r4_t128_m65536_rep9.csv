@@ -1,0 +1,2 @@
+architecture,benchmark,ranks,taskCount,messageSizeBytes,durationMs,throughput,communicationRatio,cpuUtilization,queueWaitMs,extra
+A,heat,4,128,65536,3,170666666.667,0.120,0.740,0.000,{checksum=71057012686848; mode=pure-mpi}
