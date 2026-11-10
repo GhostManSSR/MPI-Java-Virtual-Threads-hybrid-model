@@ -161,7 +161,7 @@
       "targets": [
         {
           "expr": "app_benchmark_duration_ms",
-          "legendFormat": "{{architecture}} / {{scenario}}",
+          "legendFormat": "{{architecture_name}} / {{scenario}} / ranks={{ranks}} tasks={{tasks}} msg={{message_size_bytes}}",
           "refId": "A"
         }
       ],
@@ -203,7 +203,7 @@
       "targets": [
         {
           "expr": "app_benchmark_throughput",
-          "legendFormat": "{{architecture}} / {{scenario}}",
+          "legendFormat": "{{architecture_name}} / {{scenario}} / ranks={{ranks}} tasks={{tasks}} msg={{message_size_bytes}}",
           "refId": "A"
         }
       ],
@@ -245,7 +245,7 @@
       "targets": [
         {
           "expr": "app_benchmark_cpu_utilization_ratio",
-          "legendFormat": "{{architecture}} / {{scenario}}",
+          "legendFormat": "{{architecture_name}} / {{scenario}} / ranks={{ranks}} tasks={{tasks}} msg={{message_size_bytes}}",
           "refId": "A"
         }
       ],
@@ -287,7 +287,7 @@
       "targets": [
         {
           "expr": "app_benchmark_communication_ratio",
-          "legendFormat": "{{architecture}} / {{scenario}}",
+          "legendFormat": "{{architecture_name}} / {{scenario}} / ranks={{ranks}} tasks={{tasks}} msg={{message_size_bytes}}",
           "refId": "A"
         }
       ],
@@ -329,7 +329,7 @@
       "targets": [
         {
           "expr": "app_benchmark_queue_wait_ms",
-          "legendFormat": "{{architecture}} / {{scenario}}",
+          "legendFormat": "{{architecture_name}} / {{scenario}} / ranks={{ranks}} tasks={{tasks}} msg={{message_size_bytes}}",
           "refId": "A"
         }
       ],

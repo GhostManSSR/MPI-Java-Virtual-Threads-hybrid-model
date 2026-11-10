@@ -1,9 +1,8 @@
-FROM ubuntu:24.04
+FROM eclipse-temurin:25-jdk-noble
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-21-jdk-headless \
     maven \
     build-essential \
     openmpi-bin \
@@ -17,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /workspace
 COPY . /workspace
 
-RUN mvn -q -DskipTests package
+RUN java -version && mvn -version && \
+    mvn -q -DskipTests package
 
 CMD ["bash", "-lc", "java -jar target/mpi-virtual-threads-research-0.1.0.jar --help"]

@@ -109,7 +109,12 @@ public final class Main {
         metrics.append("# HELP app_benchmark_queue_wait_ms Queue wait time for each benchmark in the latest run\n");
         metrics.append("# TYPE app_benchmark_queue_wait_ms gauge\n");
         for (BenchmarkResult result : LAST_RESULTS.get()) {
-            String labels = "{architecture=\"" + result.architecture() + "\",scenario=\"" + result.benchmark() + "\"}";
+            String labels = "{architecture=\"" + result.architecture()
+                    + "\",architecture_name=\"" + architectureDisplayName(result.architecture())
+                    + "\",scenario=\"" + result.benchmark()
+                    + "\",ranks=\"" + result.ranks()
+                    + "\",tasks=\"" + result.taskCount()
+                    + "\",message_size_bytes=\"" + result.messageSizeBytes() + "\"}";
             appendBenchmarkMetric(metrics, "app_benchmark_duration_ms", labels, result.durationMs());
             appendBenchmarkMetric(metrics, "app_benchmark_throughput", labels, result.throughput());
             appendBenchmarkMetric(metrics, "app_benchmark_cpu_utilization_ratio", labels, result.cpuUtilization());
@@ -117,6 +122,16 @@ public final class Main {
             appendBenchmarkMetric(metrics, "app_benchmark_queue_wait_ms", labels, result.queueWaitMs());
         }
         sendText(exchange, 200, metrics.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String architectureDisplayName(String architecture) {
+        return switch (architecture) {
+            case "A" -> "A. Pure MPI";
+            case "B" -> "B. MPI + Platform Threads";
+            case "C" -> "C. MPI + Virtual Threads";
+            case "D" -> "D. MPI + Virtual Threads + Dedicated MPI Thread";
+            default -> architecture;
+        };
     }
 
     private static void appendBenchmarkMetric(StringBuilder metrics, String name, String labels, double value) {
