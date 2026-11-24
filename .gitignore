@@ -5,3 +5,4 @@ target/
 .venv/
 *.log
 experiments/results/*
+!experiments/results/baseline.csv

@@ -9,5 +9,6 @@
 **/__pycache__
 *.log
 experiments/results/*.csv
+!experiments/results/baseline.csv
 experiments/results/*.json
 experiments/results/*.tsv

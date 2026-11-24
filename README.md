@@ -132,6 +132,44 @@ make dashboard
 Dashboard читает CSV из `experiments/results`. Для текстовой статистической
 сводки по этим CSV используй `make analysis-summary`.
 
+## Релизы: готовые результаты и Docker
+
+В репозитории и в каждом релизе доступен снимок `baseline.csv` с 2880
+измерениями. Его можно открыть в Python/dashboard или использовать как исходные
+данные для собственных сравнений. Каждый ряд сохраняет имя исходного CSV в
+столбце `sourceFile`.
+Этот набор собран в MPI-режиме с Open MPI 4.1.6 и Java 25; CI проверяет
+приложение и собирает контейнеры, но не подменяет исходные измерения новыми.
+
+Для запуска опубликованных контейнеров скачай исходный архив релиза (или клонируй
+репозиторий), затем из корня проекта выполни:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Python dashboard доступен на http://localhost:8501, HTTP API бенчмарка —
+на http://localhost:8080, Grafana — на http://localhost:3000.
+Для просмотра панели в ней уже доступны `experiments/results/baseline.csv`.
+Новые результаты сохраняются в эту же папку и появляются в dashboard после
+обновления данных. ZIP-архив `benchmark-results.zip` и `docker-compose.yml`
+прикреплены к каждому GitHub Release.
+После первой публикации сделай оба пакета GHCR публичными в настройках
+GitHub Packages, чтобы пользователи могли скачивать образы без авторизации.
+Новый release создаётся отправкой тега версии, например:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Чтобы провести свои измерения, используй `make container-smoke-matrix` для
+быстрой проверки или `make container-matrix` для полной матрицы. Требуются
+Docker Compose и GNU Make; результаты сохраняются локально в
+`experiments/results`. На GitHub Packages опубликованы образы бенчмарка и
+Python dashboard.
+
 ## Как запускать в Docker
 
 Docker/HTTP-режим предназначен для проверки сервиса и мониторинга; он не

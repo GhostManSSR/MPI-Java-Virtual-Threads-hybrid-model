@@ -1,7 +1,9 @@
 services:
   app:
+    image: ghcr.io/ghostmanssr/mpi-java-virtual-threads-hybrid-model:latest
     build:
       context: .
+      dockerfile: Dockerfile
     container_name: mpi-vt-research
     restart: unless-stopped
     ports:
@@ -18,6 +20,22 @@ services:
     depends_on:
       - prometheus
       - grafana
+
+  dashboard:
+    image: ghcr.io/ghostmanssr/mpi-java-virtual-threads-hybrid-model-dashboard:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: mpi-vt-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./experiments/results:/workspace/experiments/results:ro
+    networks:
+      - experiment-net
+    depends_on:
+      - app
 
   prometheus:
     image: prom/prometheus:v2.53.0
